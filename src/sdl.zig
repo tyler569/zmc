@@ -4,6 +4,7 @@ const c = @cImport({
 });
 
 pub const Event = c.SDL_Event;
+pub const NativeLayer = opaque {};
 
 pub fn init() !void {
     const result = c.SDL_Init(c.SDL_INIT_VIDEO);
@@ -14,7 +15,8 @@ pub fn init() !void {
 
 pub const Window = struct {
     window: ?*c.SDL_Window = null,
-    surface: ?* c.SDL_Surface = null,
+    surface: ?*c.SDL_Surface = null,
+    renderer: ?*c.SDL_Renderer = null,
 
     pub fn create(name: [*c]const u8, x: i32, y: i32) !Window {
         const window = c.SDL_CreateWindow(
@@ -26,11 +28,13 @@ pub const Window = struct {
             c.SDL_WINDOW_SHOWN,
         ) orelse return error.CreateWindowFailed;
 
-        const surface = c.SDL_GetWindowSurface(window);
+        const surface = c.SDL_GetWindowSurface(window) orelse return error.WindowSurfaceFailed;
+        const renderer = c.SDL_GetRenderer(window) orelse return error.WindowRendererFailed;
 
-        return Window {
+        return Window{
             .window = window,
             .surface = surface,
+            .renderer = renderer,
         };
     }
 
@@ -41,7 +45,7 @@ pub const Window = struct {
 
     pub fn pollEventsForever(self: Window) void {
         var event: Event = undefined;
-    
+
         while (true) {
             _ = c.SDL_WaitEvent(&event);
 
@@ -52,6 +56,10 @@ pub const Window = struct {
                 },
                 c.SDL_KEYDOWN => {
                     std.debug.print("keydown: {}\n", .{event.key});
+                    if (event.key.keysym.scancode == 41) {
+                        self.destroy();
+                        return;
+                    }
                 },
                 else => {
                     // std.debug.print("event: {}\n", .{event.type});
@@ -59,6 +67,9 @@ pub const Window = struct {
             }
         }
     }
+
+    pub fn nativeLayer(self: *const Window) ?*NativeLayer {
+        const layer = c.SDL_RenderGetMetalLayer(self.renderer);
+        return @ptrCast(?*NativeLayer, layer);
+    }
 };
-
-
