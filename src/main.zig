@@ -4,8 +4,11 @@ const wgpu = @import("wgpu.zig");
 
 pub fn main() !void {
     try sdl.init();
-    const window = try sdl.Window.create("Minecraft", 640, 480);
-    const graphics = try wgpu.init(&window);
+    var window = try sdl.Window.create("Minecraft", 640, 480);
+    var graphics = try wgpu.init(&window);
+
+    var pipeline = try graphics.createPipeline();
+    _ = pipeline;
 
     std.debug.print("window: {}\ngraphics: {}\n", .{ window, graphics });
 
