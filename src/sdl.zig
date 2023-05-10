@@ -43,22 +43,20 @@ pub const Window = struct {
         c.SDL_Quit();
     }
 
-    pub fn pollEventsForever(self: Window) void {
+    pub fn pollEvents(self: Window) ControlFlow {
         var event: Event = undefined;
 
-        while (true) {
-            _ = c.SDL_WaitEvent(&event);
-
+        while (c.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 c.SDL_QUIT => {
                     self.destroy();
-                    return;
+                    return .quit;
                 },
                 c.SDL_KEYDOWN => {
                     std.debug.print("keydown: {}\n", .{event.key});
                     if (event.key.keysym.scancode == 41) {
                         self.destroy();
-                        return;
+                        return .quit;
                     }
                 },
                 else => {
@@ -66,10 +64,28 @@ pub const Window = struct {
                 },
             }
         }
+
+        return .running;
     }
 
     pub fn nativeLayer(self: *const Window) ?*NativeLayer {
         const layer = c.SDL_RenderGetMetalLayer(self.renderer);
         return @ptrCast(?*NativeLayer, layer);
     }
+
+    pub const WindowSize = struct {
+        width: i32,
+        height: i32,
+    };
+
+    pub fn windowSize(self: *const Window) WindowSize {
+        var window_size: WindowSize = undefined;
+        c.SDL_GetWindowSize(self.window, &window_size.width, &window_size.height);
+        return window_size;
+    }
+};
+
+pub const ControlFlow = enum {
+    running,
+    quit,
 };
