@@ -3,6 +3,7 @@ const print = std.debug.print;
 const zeroInit = std.mem.zeroInit;
 
 const sdl = @import("sdl.zig");
+const buffer = @import("buffer.zig");
 
 const c = @cImport({
     @cInclude("wgpu.h");
@@ -154,6 +155,35 @@ const Graphics = struct {
 
         c.wgpuSwapChainPresent(self.swapchain);
     }
+
+    pub fn createVertexBufferInit(
+        self: *Graphics,
+        comptime T: type,
+        label: [*c]const u8,
+        contents: []const T,
+    ) !buffer.Buffer(T) {
+        const size = contents.len * @sizeOf(T);
+
+        const wgpu_buffer = c.wgpuDeviceCreateBuffer(
+            self.device,
+            &zeroInit(c.WGPUBufferDescriptor, .{
+                .size = size,
+                .label = label,
+                .usage = c.WGPUBufferUsage_Vertex,
+                .mappedAtCreation = true,
+            }),
+        );
+
+        const data_opaque = c.wgpuBufferGetMappedRange(wgpu_buffer, 0, size);
+        const data = @ptrCast([*]T, @alignCast(@alignOf(T), data_opaque));
+
+        @memcpy(data[0..contents.len], contents);
+        c.wgpuBufferUnmap(wgpu_buffer);
+
+        return buffer.Buffer(T){
+            .buffer = wgpu_buffer,
+        };
+    }
 };
 
 pub const Pipeline = struct {
@@ -211,7 +241,7 @@ pub fn init(window: *const sdl.Window) !Graphics {
 
     graphics.surface = c.wgpuInstanceCreateSurface(graphics.instance, &c.WGPUSurfaceDescriptor{
         .label = "Screen surface",
-        .nextInChain = @ptrCast(*c.WGPUChainedStruct, &c.WGPUSurfaceDescriptorFromMetalLayer{
+        .nextInChain = @ptrCast(*const c.WGPUChainedStruct, &c.WGPUSurfaceDescriptorFromMetalLayer{
             .chain = c.WGPUChainedStruct{
                 .sType = c.WGPUSType_SurfaceDescriptorFromMetalLayer,
                 .next = null,

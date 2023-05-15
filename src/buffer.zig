@@ -2,12 +2,14 @@ const std = @import("std");
 const print = std.debug.print;
 const expectEqual = std.testing.expectEqual;
 
+const wgpu = @import("wgpu.zig");
 const c = @cImport({
     @cInclude("wgpu.h");
 });
 
 fn vertexFormat(comptime T: type) c.WGPUVertexFormat {
     return switch (T) {
+        [2]f32 => c.WGPUVertexFormat_Float32x2,
         [3]f32 => c.WGPUVertexFormat_Float32x3,
         [4]f32 => c.WGPUVertexFormat_Float32x4,
         else => {
@@ -52,5 +54,36 @@ pub fn vertexBufferLayout(comptime T: type) !c.WGPUVertexBufferLayout {
         .stepMode = c.WGPUVertexStepMode_Vertex,
         .attributeCount = attribute_count,
         .attributes = &attributes.a,
+    };
+}
+
+test "buffer layout" {
+    const Vertex = extern struct {
+        position: [3]f32,
+        color: [4]f32,
+    };
+
+    const buffer_layout = try vertexBufferLayout(Vertex);
+
+    try expectEqual(buffer_layout.attributes[0].offset, 0);
+    try expectEqual(buffer_layout.attributes[1].offset, 12);
+
+    try error.Ooops;
+}
+
+pub fn Buffer(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        buffer: c.WGPUBuffer,
+
+        pub fn bufferLayout() c.WGPUVertexBufferLayout {
+            return bufferLayout(T);
+        }
+
+        fn deinit(self: *Self) void {
+            _ = self;
+            std.debug.print("deinit Buffer\n", .{});
+        }
     };
 }

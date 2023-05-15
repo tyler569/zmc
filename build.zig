@@ -24,8 +24,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addIncludePath("/opt/homebrew/include");
     exe.linkSystemLibrary("SDL2");
+
     exe.addIncludePath("wgpu-native/ffi");
     exe.addLibraryPath("wgpu-native/target/debug");
     exe.linkSystemLibrary("wgpu_native");
