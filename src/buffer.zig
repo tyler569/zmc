@@ -22,15 +22,13 @@ fn vertexFormat(comptime T: type) c.WGPUVertexFormat {
 pub fn vertexBufferLayout(comptime T: type) !c.WGPUVertexBufferLayout {
     const info = @typeInfo(T);
     if (info != .Struct) {
-        print("Error: Vertex buffers must consist of extern structs, found " ++ @typeName(T) ++ "\n", .{});
-        return error.VertexBufferWithNonStruct;
+        @compileError("Error: Vertex buffers must consist of extern structs, found " ++ @typeName(T) ++ "\n");
     }
 
     const struct_info = info.Struct;
 
     if (struct_info.layout != .Extern) {
-        print("Error: Vertex buffers must consist of extern structs, found " ++ @typeName(T) ++ "\n", .{});
-        return error.VertexBufferWithNonExternStruct;
+        @compileError("Error: Vertex buffers must consist of extern structs, found " ++ @typeName(T) ++ "\n");
     }
 
     const attribute_count = struct_info.fields.len;
@@ -76,12 +74,41 @@ pub fn Buffer(comptime T: type) type {
         const Self = @This();
 
         buffer: c.WGPUBuffer,
+        vertex_count: usize,
+        size: usize,
 
         pub fn bufferLayout() c.WGPUVertexBufferLayout {
             return bufferLayout(T);
         }
 
-        fn deinit(self: *Self) void {
+        pub fn init(graphics: *wgpu.Graphics, contents: []const T, label: ?[]const u8) !Self {
+            const size = contents.len * @sizeOf(T);
+
+            const wgpu_buffer = c.wgpuDeviceCreateBuffer(
+                graphics.device,
+                &c.WGPUBufferDescriptor{
+                    .size = size,
+                    .label = if (label) |l| l.ptr else null,
+                    .usage = c.WGPUBufferUsage_Vertex,
+                    .mappedAtCreation = true,
+                    .nextInChain = null,
+                },
+            );
+
+            const data_opaque = c.wgpuBufferGetMappedRange(wgpu_buffer, 0, size);
+            const data = @ptrCast([*]T, @alignCast(@alignOf(T), data_opaque));
+
+            @memcpy(data[0..contents.len], contents);
+            c.wgpuBufferUnmap(wgpu_buffer);
+
+            return Self{
+                .buffer = wgpu_buffer,
+                .vertex_count = contents.len,
+                .size = size,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
             _ = self;
             std.debug.print("deinit Buffer\n", .{});
         }

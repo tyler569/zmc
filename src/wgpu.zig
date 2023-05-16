@@ -3,13 +3,14 @@ const print = std.debug.print;
 const zeroInit = std.mem.zeroInit;
 
 const sdl = @import("sdl.zig");
+const mesh = @import("mesh.zig");
 const buffer = @import("buffer.zig");
 
 const c = @cImport({
     @cInclude("wgpu.h");
 });
 
-const Graphics = struct {
+pub const Graphics = struct {
     instance: c.WGPUInstance = null,
     surface: c.WGPUSurface = null,
     adapter: c.WGPUAdapter = null,
@@ -53,7 +54,7 @@ const Graphics = struct {
         return preferred_format;
     }
 
-    pub fn createPipeline(self: *Graphics) !Pipeline {
+    pub fn createPipeline(self: *Graphics, comptime Buffer: anytype) !Pipeline {
         const shader_module = try self.loadShaderModule();
 
         const pipeline_layout = c.wgpuDeviceCreatePipelineLayout(
@@ -62,6 +63,20 @@ const Graphics = struct {
                 .label = "pipeline_layout",
             }),
         ) orelse return error.CreatePipelineLayoutFailed;
+
+        // Want to take a tuple of types in the future
+        //
+        // const info = @typeInfo(@TypeOf(Ts));
+        // if (info != .Struct or !info.Struct.is_tuple) {
+        //     @compileError("createPipeline expects a tuple of types, found: " ++ @typeName(Ts));
+        // }
+
+        // const buffer_count = info.Struct.fields.len;
+        // comptime var buffer_descs: [buffer_count]c.WGPUVertexBufferLayout = undefined;
+        // inline for (info.Struct.fields, 0..) |field, i| {
+        //     @compileLog("type is " ++ @typeName(field.type));
+        //     buffer_descs[i] = try buffer.vertexBufferLayout(field.type);
+        // }
 
         const pipeline = c.wgpuDeviceCreateRenderPipeline(
             self.device,
@@ -74,8 +89,10 @@ const Graphics = struct {
                     .nextInChain = null,
                     .constantCount = 0,
                     .constants = null,
-                    .bufferCount = 0,
-                    .buffers = null,
+                    .bufferCount = 1,
+                    .buffers = &[1]c.WGPUVertexBufferLayout{
+                        try buffer.vertexBufferLayout(Buffer),
+                    },
                 },
                 .fragment = &c.WGPUFragmentState{
                     .module = shader_module,
@@ -108,23 +125,78 @@ const Graphics = struct {
         };
     }
 
-    pub fn renderPass(self: *Graphics, pipeline: Pipeline) !void {
-        const next_texture = c.wgpuSwapChainGetCurrentTextureView(self.swapchain) orelse return error.GetCurrentTextureViewFailed;
-        var command_encoder: c.WGPUCommandEncoder = c.wgpuDeviceCreateCommandEncoder(
-            self.device,
+    pub fn render(self: *Graphics) !RenderFrame {
+        return RenderFrame.init(self);
+    }
+
+    pub fn createVertexBufferInit(
+        self: *Graphics,
+        comptime T: type,
+        label: ?[]const u8,
+        contents: []const T,
+    ) !buffer.Buffer(T) {
+        return buffer.Buffer(T).init(self, contents, label);
+    }
+};
+
+pub const RenderFrame = struct {
+    graphics: *Graphics,
+    command_encoder: c.WGPUCommandEncoder,
+    texture: c.WGPUTextureView,
+
+    pub fn init(graphics: *Graphics) !RenderFrame {
+        const next_texture = c.wgpuSwapChainGetCurrentTextureView(graphics.swapchain) orelse
+            return error.GetCurrentTextureViewFailed;
+        const command_encoder: c.WGPUCommandEncoder = c.wgpuDeviceCreateCommandEncoder(
+            graphics.device,
             &zeroInit(c.WGPUCommandEncoderDescriptor, .{
                 .label = "command_encoder",
             }),
         ) orelse return error.CreateCommandEncoderFailed;
 
-        var render_pass_encoder: c.WGPURenderPassEncoder = c.wgpuCommandEncoderBeginRenderPass(
-            command_encoder,
+        return RenderFrame{
+            .graphics = graphics,
+            .command_encoder = command_encoder,
+            .texture = next_texture,
+        };
+    }
+
+    pub fn renderPass(self: *RenderFrame, pipeline: *Pipeline) !RenderPass {
+        return RenderPass.init(self, pipeline);
+    }
+
+    pub fn finish(self: *RenderFrame) !void {
+        c.wgpuTextureViewDrop(self.texture);
+
+        const command_buffer = c.wgpuCommandEncoderFinish(
+            self.command_encoder,
+            &zeroInit(c.WGPUCommandBufferDescriptor, .{
+                .label = "command_buffer",
+            }),
+        ) orelse return error.CommandEncoderFinishFailed;
+
+        c.wgpuQueueSubmit(self.graphics.queue, 1, &command_buffer);
+
+        c.wgpuSwapChainPresent(self.graphics.swapchain);
+    }
+};
+
+pub const RenderPass = struct {
+    frame: *RenderFrame,
+    pipeline: *Pipeline,
+    encoder: c.WGPURenderPassEncoder,
+
+    vertices: ?usize,
+
+    fn init(frame: *RenderFrame, pipeline: *Pipeline) !RenderPass {
+        const render_pass_encoder: c.WGPURenderPassEncoder = c.wgpuCommandEncoderBeginRenderPass(
+            frame.command_encoder,
             &zeroInit(c.WGPURenderPassDescriptor, .{
                 .label = "render_pass_encoder",
                 .colorAttachmentCount = 1,
                 .colorAttachments = &[1]c.WGPURenderPassColorAttachment{
                     zeroInit(c.WGPURenderPassColorAttachment, .{
-                        .view = next_texture,
+                        .view = frame.texture,
                         .loadOp = c.WGPULoadOp_Clear,
                         .storeOp = c.WGPUStoreOp_Store,
                         .clearValue = c.WGPUColor{
@@ -139,50 +211,23 @@ const Graphics = struct {
         );
 
         c.wgpuRenderPassEncoderSetPipeline(render_pass_encoder, pipeline.pipeline);
-        c.wgpuRenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0);
-        c.wgpuRenderPassEncoderEnd(render_pass_encoder);
 
-        c.wgpuTextureViewDrop(next_texture);
-
-        const command_buffer = c.wgpuCommandEncoderFinish(
-            command_encoder,
-            &zeroInit(c.WGPUCommandBufferDescriptor, .{
-                .label = "command_buffer",
-            }),
-        ) orelse return error.CommandEncoderFinishFailed;
-
-        c.wgpuQueueSubmit(self.queue, 1, &command_buffer);
-
-        c.wgpuSwapChainPresent(self.swapchain);
+        return RenderPass{
+            .frame = frame,
+            .pipeline = pipeline,
+            .encoder = render_pass_encoder,
+            .vertices = null,
+        };
     }
 
-    pub fn createVertexBufferInit(
-        self: *Graphics,
-        comptime T: type,
-        label: [*c]const u8,
-        contents: []const T,
-    ) !buffer.Buffer(T) {
-        const size = contents.len * @sizeOf(T);
+    pub fn attachBuffer(self: *RenderPass, buf: anytype) !void {
+        self.vertices = buf.vertex_count;
+        c.wgpuRenderPassEncoderSetVertexBuffer(self.encoder, 0, buf.buffer, 0, buf.size);
+    }
 
-        const wgpu_buffer = c.wgpuDeviceCreateBuffer(
-            self.device,
-            &zeroInit(c.WGPUBufferDescriptor, .{
-                .size = size,
-                .label = label,
-                .usage = c.WGPUBufferUsage_Vertex,
-                .mappedAtCreation = true,
-            }),
-        );
-
-        const data_opaque = c.wgpuBufferGetMappedRange(wgpu_buffer, 0, size);
-        const data = @ptrCast([*]T, @alignCast(@alignOf(T), data_opaque));
-
-        @memcpy(data[0..contents.len], contents);
-        c.wgpuBufferUnmap(wgpu_buffer);
-
-        return buffer.Buffer(T){
-            .buffer = wgpu_buffer,
-        };
+    pub fn draw(self: *RenderPass) !void {
+        c.wgpuRenderPassEncoderDraw(self.encoder, @intCast(u32, self.vertices orelse 0), 1, 0, 0);
+        c.wgpuRenderPassEncoderEnd(self.encoder);
     }
 };
 
