@@ -15,6 +15,7 @@ pub fn main() !void {
         "vertex",
         &mesh.sample_mesh,
     );
+    defer v_buffer.deinit();
 
     const frame_ns = std.time.ns_per_s / 60;
 

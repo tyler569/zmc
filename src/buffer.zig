@@ -108,9 +108,8 @@ pub fn Buffer(comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
-            _ = self;
-            std.debug.print("deinit Buffer\n", .{});
+        pub fn deinit(self: *const Self) void {
+            c.wgpuBufferDestroy(self.buffer);
         }
     };
 }
