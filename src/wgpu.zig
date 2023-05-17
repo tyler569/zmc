@@ -161,8 +161,12 @@ pub const RenderFrame = struct {
         };
     }
 
-    pub fn renderPass(self: *RenderFrame, pipeline: *Pipeline) !RenderPass {
-        return RenderPass.init(self, pipeline);
+    pub fn renderPass(
+        self: *RenderFrame,
+        pipeline: *Pipeline,
+        op: RenderOp,
+    ) !RenderPass {
+        return RenderPass.init(self, pipeline, op);
     }
 
     pub fn finish(self: *RenderFrame) !void {
@@ -181,6 +185,22 @@ pub const RenderFrame = struct {
     }
 };
 
+pub const Color = struct {
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+
+    pub fn wgpuColor(self: *const Color) c.WGPUColor {
+        return .{ .r = self.r, .g = self.g, .b = self.b, .a = self.a };
+    }
+};
+
+pub const RenderOp = union(enum) {
+    clear: Color,
+    store: void,
+};
+
 pub const RenderPass = struct {
     frame: *RenderFrame,
     pipeline: *Pipeline,
@@ -188,24 +208,28 @@ pub const RenderPass = struct {
 
     vertices: ?usize,
 
-    fn init(frame: *RenderFrame, pipeline: *Pipeline) !RenderPass {
+    fn init(frame: *RenderFrame, pipeline: *Pipeline, op: RenderOp) !RenderPass {
+        const color_attachment = switch (op) {
+            .clear => |color| zeroInit(c.WGPURenderPassColorAttachment, .{
+                .view = frame.texture,
+                .loadOp = c.WGPULoadOp_Clear,
+                .storeOp = c.WGPUStoreOp_Store,
+                .clearValue = color.wgpuColor(),
+            }),
+            .store => zeroInit(c.WGPURenderPassColorAttachment, .{
+                .view = frame.texture,
+                .loadOp = c.WGPULoadOp_Load,
+                .storeOp = c.WGPUStoreOp_Store,
+            }),
+        };
+
         const render_pass_encoder: c.WGPURenderPassEncoder = c.wgpuCommandEncoderBeginRenderPass(
             frame.command_encoder,
             &zeroInit(c.WGPURenderPassDescriptor, .{
                 .label = "render_pass_encoder",
                 .colorAttachmentCount = 1,
                 .colorAttachments = &[1]c.WGPURenderPassColorAttachment{
-                    zeroInit(c.WGPURenderPassColorAttachment, .{
-                        .view = frame.texture,
-                        .loadOp = c.WGPULoadOp_Clear,
-                        .storeOp = c.WGPUStoreOp_Store,
-                        .clearValue = c.WGPUColor{
-                            .r = 0.1,
-                            .g = 0.2,
-                            .b = 0.3,
-                            .a = 1.0,
-                        },
-                    }),
+                    color_attachment,
                 },
             }),
         );

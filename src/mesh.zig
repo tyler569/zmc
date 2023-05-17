@@ -6,8 +6,17 @@ pub const Vertex = extern struct {
     color: [4]f32,
 };
 
-pub const sample_mesh: [3]Vertex = [3]Vertex{
-    .{ .position = .{ -0.5, -0.5, 0 }, .color = .{ 1.0, 0.0, 0.0, 1.0 } },
-    .{ .position = .{ 0.0, 0.5, 0 }, .color = .{ 0.0, 1.0, 0.0, 1.0 } },
-    .{ .position = .{ 0.5, -0.5, 0 }, .color = .{ 1.0, 0.0, 0.0, 1.0 } },
+const RED = [4]f32{ 1.0, 0.0, 0.0, 1.0 };
+const GREEN = [4]f32{ 0.0, 1.0, 0.0, 1.0 };
+const BLUE = [4]f32{ 0.0, 0.0, 1.0, 1.0 };
+const BLACK = [4]f32{ 0.0, 0.0, 0.0, 1.0 };
+
+const A = Vertex{ .position = .{ -0.5, -0.5, 0 }, .color = BLUE };
+const B = Vertex{ .position = .{ -0.5, 0.5, 0 }, .color = RED };
+const C = Vertex{ .position = .{ 0.5, 0.5, 0 }, .color = GREEN };
+const D = Vertex{ .position = .{ 0.5, -0.5, 0 }, .color = BLUE };
+
+pub const sample_mesh = [6]Vertex{
+    A, C, B,
+    A, D, C,
 };

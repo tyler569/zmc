@@ -20,8 +20,10 @@ pub fn main() !void {
     const frame_ns = std.time.ns_per_s / 60;
 
     while (window.pollEvents() != .quit) {
+        const color = wgpu.Color{ .r = 0.1, .g = 0.2, .b = 0.3, .a = 1.0 };
+
         var frame = try graphics.render();
-        var pass = try frame.renderPass(&pipeline);
+        var pass = try frame.renderPass(&pipeline, wgpu.RenderOp{ .clear = color });
 
         try pass.attachBuffer(v_buffer);
         try pass.draw();
