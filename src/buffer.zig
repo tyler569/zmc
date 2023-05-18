@@ -69,47 +69,90 @@ test "buffer layout" {
     try error.Ooops;
 }
 
-pub fn Buffer(comptime T: type) type {
-    return struct {
-        const Self = @This();
+pub const Buffer = struct {
+    buffer: c.WGPUBuffer,
+    vertex_count: usize,
+    size: usize,
 
-        buffer: c.WGPUBuffer,
-        vertex_count: usize,
-        size: usize,
-
-        pub fn bufferLayout() c.WGPUVertexBufferLayout {
-            return bufferLayout(T);
-        }
-
-        pub fn init(graphics: *wgpu.Graphics, contents: []const T, label: ?[]const u8) !Self {
-            const size = contents.len * @sizeOf(T);
-
-            const wgpu_buffer = c.wgpuDeviceCreateBuffer(
-                graphics.device,
-                &c.WGPUBufferDescriptor{
-                    .size = size,
-                    .label = if (label) |l| l.ptr else null,
-                    .usage = c.WGPUBufferUsage_Vertex,
-                    .mappedAtCreation = true,
-                    .nextInChain = null,
-                },
-            );
-
-            const data_opaque = c.wgpuBufferGetMappedRange(wgpu_buffer, 0, size);
-            const data = @ptrCast([*]T, @alignCast(@alignOf(T), data_opaque));
-
-            @memcpy(data[0..contents.len], contents);
-            c.wgpuBufferUnmap(wgpu_buffer);
-
-            return Self{
-                .buffer = wgpu_buffer,
-                .vertex_count = contents.len,
-                .size = size,
-            };
-        }
-
-        pub fn deinit(self: *const Self) void {
-            c.wgpuBufferDestroy(self.buffer);
-        }
+    pub const Usage = enum {
+        vertex,
+        uniform,
     };
-}
+
+    pub fn init(
+        graphics: *wgpu.Graphics,
+        contents: anytype,
+        label: ?[]const u8,
+        usage: Usage,
+    ) !Buffer {
+        const contents_T = @TypeOf(contents);
+        const contents_info = @typeInfo(contents_T);
+
+        comptime var T: type = undefined;
+        var vertex_count: usize = 1;
+
+        switch (contents_info) {
+            .Pointer => |info| {
+                T = info.child;
+
+                if (info.size == .Slice) {
+                    vertex_count = contents.len;
+                } else if (info.size == .One) {
+                    const ptr_info = @typeInfo(T);
+                    switch (ptr_info) {
+                        .Array => |array| {
+                            vertex_count = array.len;
+                            T = array.child;
+                        },
+                        else => {},
+                    }
+                } else {
+                    @compileError("WGPU Buffers cannot be initialized with [*] or [*c] pointers, found " ++ @typeName(contents_T));
+                }
+            },
+            else => {
+                T = contents_T;
+            },
+        }
+
+        const size = vertex_count * @sizeOf(T);
+
+        const buffer_usage: u32 = switch (usage) {
+            .vertex => c.WGPUBufferUsage_Vertex,
+            .uniform => c.WGPUBufferUsage_Uniform | c.WGPUBufferUsage_CopyDst,
+        };
+
+        const wgpu_buffer = c.wgpuDeviceCreateBuffer(
+            graphics.device,
+            &c.WGPUBufferDescriptor{
+                .size = size,
+                .label = if (label) |l| l.ptr else null,
+                .usage = buffer_usage,
+                .mappedAtCreation = true,
+                .nextInChain = null,
+            },
+        );
+
+        const data_opaque = c.wgpuBufferGetMappedRange(wgpu_buffer, 0, size);
+        const data = @ptrCast([*]T, @alignCast(@alignOf(T), data_opaque));
+
+        // @compileLog("T is " ++ @typeName(T));
+
+        if (contents_info == .Pointer) {
+            @memcpy(data[0..vertex_count], contents);
+        } else {
+            data[0] = contents;
+        }
+        c.wgpuBufferUnmap(wgpu_buffer);
+
+        return Buffer{
+            .buffer = wgpu_buffer,
+            .vertex_count = vertex_count,
+            .size = size,
+        };
+    }
+
+    pub fn deinit(self: *const Buffer) void {
+        c.wgpuBufferDestroy(self.buffer);
+    }
+};

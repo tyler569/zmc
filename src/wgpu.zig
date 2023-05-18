@@ -54,7 +54,7 @@ pub const Graphics = struct {
         return preferred_format;
     }
 
-    pub fn createPipeline(self: *Graphics, comptime Buffer: anytype) !Pipeline {
+    pub fn createPipeline(self: *Graphics, comptime VertexType: anytype) !Pipeline {
         const shader_module = try self.loadShaderModule();
 
         const pipeline_layout = c.wgpuDeviceCreatePipelineLayout(
@@ -91,7 +91,7 @@ pub const Graphics = struct {
                     .constants = null,
                     .bufferCount = 1,
                     .buffers = &[1]c.WGPUVertexBufferLayout{
-                        try buffer.vertexBufferLayout(Buffer),
+                        try buffer.vertexBufferLayout(VertexType),
                     },
                 },
                 .fragment = &c.WGPUFragmentState{
@@ -131,11 +131,18 @@ pub const Graphics = struct {
 
     pub fn createVertexBufferInit(
         self: *Graphics,
-        comptime T: type,
         label: ?[]const u8,
-        contents: []const T,
-    ) !buffer.Buffer(T) {
-        return buffer.Buffer(T).init(self, contents, label);
+        contents: anytype,
+    ) !buffer.Buffer {
+        return buffer.Buffer.init(self, contents, label, .vertex);
+    }
+
+    pub fn createUniformBufferInit(
+        self: *Graphics,
+        label: ?[]const u8,
+        contents: anytype,
+    ) !buffer.Buffer {
+        return buffer.Buffer.init(self, contents, label, .uniform);
     }
 };
 
@@ -244,7 +251,7 @@ pub const RenderPass = struct {
         };
     }
 
-    pub fn attachBuffer(self: *RenderPass, buf: anytype) !void {
+    pub fn attachBuffer(self: *RenderPass, buf: buffer.Buffer) !void {
         self.vertices = buf.vertex_count;
         c.wgpuRenderPassEncoderSetVertexBuffer(self.encoder, 0, buf.buffer, 0, buf.size);
     }
