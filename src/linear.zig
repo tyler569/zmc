@@ -106,5 +106,5 @@ pub const Vec4 = struct {
 
 test "vector4 lengths" {
     const a = Vec4{ .x = 1, .y = 0, .z = 0, .w = 0 };
-    try std.testing.expectEqual(@as(0, f32), a.length());
+    std.testing.expectEqual(@as(0, f32), a.length());
 }

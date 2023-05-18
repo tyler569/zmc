@@ -26,13 +26,13 @@ pub fn main() !void {
     };
 
     const v_buffer = try graphics.createVertexBufferInit(
-        "vertex",
+        mesh.Vertex,
         &mesh.sample_mesh,
     );
     defer v_buffer.deinit();
 
     const u_buffer = try graphics.createUniformBufferInit(
-        "uniform",
+        TransformMatrix,
         TransformMatrix.identity(),
     );
     defer u_buffer.deinit();

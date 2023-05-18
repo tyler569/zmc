@@ -131,18 +131,18 @@ pub const Graphics = struct {
 
     pub fn createVertexBufferInit(
         self: *Graphics,
-        label: ?[]const u8,
-        contents: anytype,
-    ) !buffer.Buffer {
-        return buffer.Buffer.init(self, contents, label, .vertex);
+        comptime T: type,
+        contents: []const T,
+    ) !buffer.VertexBuffer(T) {
+        return buffer.VertexBuffer(T).init(self, contents);
     }
 
     pub fn createUniformBufferInit(
         self: *Graphics,
-        label: ?[]const u8,
-        contents: anytype,
-    ) !buffer.Buffer {
-        return buffer.Buffer.init(self, contents, label, .uniform);
+        comptime T: type,
+        contents: T,
+    ) !buffer.UniformBuffer(T) {
+        return buffer.UniformBuffer(T).init(self, contents);
     }
 };
 
@@ -251,7 +251,7 @@ pub const RenderPass = struct {
         };
     }
 
-    pub fn attachBuffer(self: *RenderPass, buf: buffer.Buffer) !void {
+    pub fn attachBuffer(self: *RenderPass, buf: anytype) !void {
         self.vertices = buf.vertex_count;
         c.wgpuRenderPassEncoderSetVertexBuffer(self.encoder, 0, buf.buffer, 0, buf.size);
     }
