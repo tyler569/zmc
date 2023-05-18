@@ -54,13 +54,43 @@ pub const Graphics = struct {
         return preferred_format;
     }
 
-    pub fn createPipeline(self: *Graphics, comptime VertexType: anytype) !Pipeline {
+    pub fn createPipeline(self: *Graphics, vertex_buffers: anytype, uniform_buffers: anytype) !Pipeline {
         const shader_module = try self.loadShaderModule();
+
+        const VertexType = @TypeOf(vertex_buffers);
+        const vertex_info = @typeInfo(VertexType);
+        const UniformType = @TypeOf(uniform_buffers);
+        const uniform_info = @typeInfo(UniformType);
+
+        if (vertex_info != .Struct) {
+            @compileError("expected tuple or struct argument, found " ++ @typeName(VertexType));
+        }
+        if (uniform_info != .Struct) {
+            @compileError("expected tuple or struct argument, found " ++ @typeName(UniformType));
+        }
+
+        const vertex_fields = vertex_info.Struct.fields;
+        const uniform_fields = uniform_info.Struct.fields;
+
+        const bind_group_count = uniform_fields.len;
+        var bind_group_layouts: [bind_group_count]c.WGPUBindGroupLayout = undefined;
+        inline for (uniform_fields, 0..) |field, i| {
+            bind_group_layouts[i] = @field(uniform_buffers, field.name).bind_group_layout;
+        }
+
+        const vertex_buffer_count = vertex_fields.len;
+        var vertex_buffer_layouts: [vertex_buffer_count]c.WGPUVertexBufferLayout = undefined;
+        inline for (vertex_fields, 0..) |field, i| {
+            // vertex_buffer_layouts[i] = @field(vertex_buffers, field.name).layout();
+            vertex_buffer_layouts[i] = field.type.layout();
+        }
 
         const pipeline_layout = c.wgpuDeviceCreatePipelineLayout(
             self.device,
             &zeroInit(c.WGPUPipelineLayoutDescriptor, .{
                 .label = "pipeline_layout",
+                .bindGroupLayoutCount = bind_group_count,
+                .bindGroupLayouts = &bind_group_layouts,
             }),
         ) orelse return error.CreatePipelineLayoutFailed;
 
@@ -89,10 +119,8 @@ pub const Graphics = struct {
                     .nextInChain = null,
                     .constantCount = 0,
                     .constants = null,
-                    .bufferCount = 1,
-                    .buffers = &[1]c.WGPUVertexBufferLayout{
-                        try buffer.vertexBufferLayout(VertexType),
-                    },
+                    .bufferCount = vertex_buffer_count,
+                    .buffers = &vertex_buffer_layouts,
                 },
                 .fragment = &c.WGPUFragmentState{
                     .module = shader_module,
@@ -213,7 +241,8 @@ pub const RenderPass = struct {
     pipeline: *Pipeline,
     encoder: c.WGPURenderPassEncoder,
 
-    vertices: ?usize,
+    vertices: ?usize = null,
+    next_bind_group: u32 = 0,
 
     fn init(frame: *RenderFrame, pipeline: *Pipeline, op: RenderOp) !RenderPass {
         const color_attachment = switch (op) {
@@ -247,13 +276,16 @@ pub const RenderPass = struct {
             .frame = frame,
             .pipeline = pipeline,
             .encoder = render_pass_encoder,
-            .vertices = null,
         };
     }
 
     pub fn attachBuffer(self: *RenderPass, buf: anytype) !void {
         self.vertices = buf.vertex_count;
         c.wgpuRenderPassEncoderSetVertexBuffer(self.encoder, 0, buf.buffer, 0, buf.size);
+    }
+
+    pub fn attachUniform(self: *RenderPass, buf: anytype) !void {
+        c.wgpuRenderPassEncoderSetBindGroup(self.encoder, self.next_bind_group, buf.bind_group, 0, null);
     }
 
     pub fn draw(self: *RenderPass) !void {

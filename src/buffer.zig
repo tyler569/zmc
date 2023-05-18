@@ -1,6 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 const expectEqual = std.testing.expectEqual;
+const zeroInit = std.mem.zeroInit;
 
 const wgpu = @import("wgpu.zig");
 const c = @cImport({
@@ -18,7 +19,9 @@ fn vertexFormat(comptime T: type) c.WGPUVertexFormat {
     };
 }
 
-pub fn vertexBufferLayout(comptime T: type) !c.WGPUVertexBufferLayout {
+// TODO: I'd like to transition users of this to VertexBuffer.layout()
+// and make this private in the future.
+pub fn vertexBufferLayout(comptime T: type) c.WGPUVertexBufferLayout {
     const info = @typeInfo(T);
     if (info != .Struct) {
         @compileError("Error: Vertex buffers must consist of extern structs, found " ++ @typeName(T) ++ "\n");
@@ -153,6 +156,10 @@ pub fn VertexBuffer(comptime Vertex: type) type {
         pub fn deinit(self: *const Self) void {
             c.wgpuBufferDestroy(self.buffer);
         }
+
+        pub fn layout() c.WGPUVertexBufferLayout {
+            return vertexBufferLayout(Vertex);
+        }
     };
 }
 
@@ -160,26 +167,78 @@ pub fn UniformBuffer(comptime Value: type) type {
     return struct {
         const Self = @This();
 
+        graphics: *const wgpu.Graphics,
         buffer: c.WGPUBuffer,
         bind_group_layout: c.WGPUBindGroupLayout,
         bind_group: c.WGPUBindGroup,
 
         pub fn init(graphics: *const wgpu.Graphics, contents: Value) Self {
+            const bind_group_layout = c.wgpuDeviceCreateBindGroupLayout(
+                graphics.device,
+                &c.WGPUBindGroupLayoutDescriptor{
+                    .nextInChain = null,
+                    .label = "bind group layout",
+                    .entryCount = 1,
+                    .entries = &[1]c.WGPUBindGroupLayoutEntry{
+                        zeroInit(c.WGPUBindGroupLayoutEntry, .{
+                            .binding = 0,
+                            .visibility = c.WGPUShaderStage_Vertex,
+                            .buffer = c.WGPUBufferBindingLayout{
+                                .nextInChain = null,
+                                .type = c.WGPUBufferBindingType_Uniform,
+                                .hasDynamicOffset = false,
+                                .minBindingSize = 0,
+                            },
+                        }),
+                    },
+                },
+            );
+
             const buffer = createBuffer(
                 graphics,
                 u8SliceHelper(Value, &contents),
                 "uniform buffer",
                 .uniform,
             );
+
+            const bind_group = c.wgpuDeviceCreateBindGroup(
+                graphics.device,
+                &c.WGPUBindGroupDescriptor{
+                    .nextInChain = null,
+                    .label = "bind group",
+                    .layout = bind_group_layout,
+                    .entryCount = 1,
+                    .entries = &[1]c.WGPUBindGroupEntry{
+                        zeroInit(c.WGPUBindGroupEntry, .{
+                            .binding = 0,
+                            .buffer = buffer,
+                            .offset = 0,
+                            .size = @sizeOf(Value),
+                        }),
+                    },
+                },
+            );
+
             return Self{
+                .graphics = graphics,
                 .buffer = buffer,
-                .bind_group_layout = null,
-                .bind_group = null,
+                .bind_group_layout = bind_group_layout,
+                .bind_group = bind_group,
             };
         }
 
         pub fn deinit(self: *const Self) void {
             c.wgpuBufferDestroy(self.buffer);
+        }
+
+        pub fn write(self: *const Self, value: Value) void {
+            c.wgpuQueueWriteBuffer(
+                self.graphics.queue,
+                self.buffer,
+                0,
+                @ptrCast([*]const u8, &value),
+                @sizeOf(Value),
+            );
         }
     };
 }
