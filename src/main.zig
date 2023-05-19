@@ -3,8 +3,12 @@ const sdl = @import("sdl.zig");
 const wgpu = @import("wgpu.zig");
 const buffer = @import("buffer.zig");
 const mesh = @import("mesh.zig");
+const linear = @import("linear.zig");
 
 pub fn main() !void {
+    linear.linearTest();
+    // std.process.exit(0);
+
     try sdl.init();
     var window = try sdl.Window.create("Triangle", 640, 480);
     var graphics = try wgpu.init(&window);
