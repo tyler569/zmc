@@ -9,6 +9,9 @@ pub fn main() !void {
     linear.linearTest();
     // std.process.exit(0);
 
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
     try sdl.init();
     var window = try sdl.Window.create("Triangle", 640, 480);
     var graphics = try wgpu.init(&window);
@@ -26,6 +29,9 @@ pub fn main() !void {
 
     const frame_ns = std.time.ns_per_s / 60;
     const start = std.time.milliTimestamp();
+
+    const chunk = mesh.Chunk.default();
+    _ = try chunk.generateMesh(&graphics, allocator);
 
     while (window.pollEvents() != .quit) {
         const color = wgpu.Color{ .r = 0.1, .g = 0.2, .b = 0.3, .a = 1.0 };
